@@ -14,14 +14,14 @@ APPS = {
 # id=gob.bancodelbienestar.bcobienapp
 # id=st.android.imsspublico
 CONFIG = {
-    "APP_ID": APPS["imss_publico"],
-    "OUTPUT_FILE": f"reviews_{APPS['imss_publico']}_{datetime.now().strftime('%Y-%m-%d_%H')}.csv",
+    "APP_ID": APPS["banco_bienestar"],
+    "OUTPUT_FILE": f"reviews_{APPS['banco_bienestar']}_{datetime.now().strftime('%Y-%m-%d_%H')}.csv",
     "TARGET_RATINGS": [1, 2, 3],
     "SCRAPE_COUNT": 200,
     "SCRAPE_LANG": "es",
     "SCRAPE_COUNTRY": "mx",
     "IP_CHECK_URL": "https://ipinfo.io/json",
-    "CUT_OFF_DATE": datetime(2026, 1, 1),  # Only reviews after this date will be considered
+    "CUT_OFF_DATE": datetime(2026, 4, 30),  # Only reviews after this date will be considered
     "IP_CHECK_TIMEOUT": 5,
     "REQUESTS_TIMEOUT": 10,
 }
