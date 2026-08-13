@@ -15,7 +15,6 @@ APPS = {
 # id=st.android.imsspublico
 CONFIG = {
     "APP_ID": APPS["banco_bienestar"],
-    "OUTPUT_FILE": f"reviews_{APPS['banco_bienestar']}_{datetime.now().strftime('%Y-%m-%d_%H')}.csv",
     "TARGET_RATINGS": [1, 2, 3],
     "SCRAPE_COUNT": 200,
     "SCRAPE_LANG": "es",
@@ -42,18 +41,17 @@ def setup_logging() -> None:
         handler.flush()
 
 
-def verify_vpn_location() -> bool:
+def check_connection_origin() -> None:
     """
-    Verify that the current IP is not from Mexico.
-    
-    Returns:
-        True if IP is outside Mexico, False otherwise.
-        
-    Raises:
-        SystemExit: If IP verification fails or IP is from Mexico.
+    Check the public IP's origin country and warn the user about it.
+
+    There is no reliable way to detect whether the connection is routed
+    through a VPN, so this only informs the user of the detected country
+    and recommends using a VPN plus following Google's scraping etiquette.
+    This check is informational only and never blocks execution.
     """
-    log.info("Checking VPN status...")
-    
+    log.info("Checking public IP origin...")
+
     try:
         response = requests.get(
             CONFIG["IP_CHECK_URL"],
@@ -61,35 +59,35 @@ def verify_vpn_location() -> bool:
         )
         response.raise_for_status()
     except requests.exceptions.Timeout:
-        log.error("IP check timed out. Check your internet connection.")
-        sys.exit(1)
+        log.warning("IP check timed out. Skipping origin check.")
+        return
     except requests.exceptions.RequestException as e:
-        log.error(f"Failed to verify IP: {e}")
-        sys.exit(1)
-    
+        log.warning(f"Failed to check IP origin: {e}")
+        return
+
     try:
         ip_data = response.json()
         country = ip_data.get("country", "UNKNOWN")
     except ValueError:
-        log.error("Invalid JSON response from IP check service")
-        sys.exit(1)
-    
-    if "MX" in country:
-        log.error("Current IP is from Mexico. Cannot proceed.")
-        sys.exit(1)
-    
-    log.info(f"IP verified outside Mexico: [{country}]")
-    return True
+        log.warning("Invalid JSON response from IP check service. Skipping origin check.")
+        return
+
+    log.warning(f"Connection origin country: [{country}]")
+    log.warning(
+        "Cannot verify whether this connection is routed through a VPN. "
+        "Consider using one, and follow Google's scraping etiquette "
+        "(reasonable request rates, respect CUT_OFF_DATE, avoid excessive retries)."
+    )
 
 
 def fetch_reviews(app_id: str, score: int):
     """
     Fetch reviews from Google Play Store.
-    
+
     Args:
         app_id: Google Play Store app package ID.
         score: The rating score to filter reviews.
-        
+
     Returns:
         DataFrame with fetched reviews, or None if fetch failed.
     """
@@ -146,11 +144,11 @@ def fetch_reviews(app_id: str, score: int):
 def filter_low_ratings(df: pd.DataFrame, ratings: list) -> pd.DataFrame:
     """
     Filter DataFrame to keep only reviews with specified ratings.
-    
+
     Args:
         df: DataFrame with review data.
         ratings: List of rating values to keep (e.g., [1, 2, 3]).
-        
+
     Returns:
         Filtered DataFrame.
     """
@@ -159,21 +157,26 @@ def filter_low_ratings(df: pd.DataFrame, ratings: list) -> pd.DataFrame:
     return filtered_df
 
 
+def build_output_filename(app_id: str) -> str:
+    """Build the output CSV filename for a given app id, timestamped to the hour."""
+    return f"reviews_{app_id}_{datetime.now().strftime('%Y-%m-%d_%H')}.csv"
+
+
 def save_reviews(df: pd.DataFrame, output_file: str) -> bool:
     """
     Save reviews DataFrame to CSV file.
-    
+
     Args:
         df: DataFrame to save.
         output_file: Path to output CSV file.
-        
+
     Returns:
         True if successful, False otherwise.
     """
     if df.empty:
         log.warning("DataFrame is empty. Skipping save.")
         return False
-    
+
     try:
         df.to_csv(output_file, index=False, encoding="utf-8-sig")
         log.info(f"Successfully saved {len(df)} reviews to '{output_file}'")
@@ -186,13 +189,12 @@ def save_reviews(df: pd.DataFrame, output_file: str) -> bool:
 def main() -> int:
     """Main application entry point."""
     setup_logging()
-    
+
     log.info("=== Google Play Store Reviews Scraper ===")
-    
-    # Step 1: Verify VPN location
-    if not verify_vpn_location():
-        return 1
-    
+
+    # Step 1: Warn about connection origin (informational only, does not block)
+    check_connection_origin()
+
     # Step 2: Fetch reviews
     dfs = []
     for score in CONFIG["TARGET_RATINGS"]:
@@ -201,22 +203,23 @@ def main() -> int:
             return 1
         if not df_score.empty:
             dfs.append(df_score)
-    
+
     if not dfs:
         log.warning("No reviews were fetched for target ratings")
         return 0
-    
+
     df_reviews = pd.concat(dfs, ignore_index=True)
-    
+
     # Step 3: Filter to low ratings (sanity check)
     df_low = filter_low_ratings(df_reviews, CONFIG["TARGET_RATINGS"])
-    
+
     if df_low.empty:
         log.warning("No reviews found with target ratings")
         return 0
-    
+
     # Step 4: Save to file
-    if save_reviews(df_low, CONFIG["OUTPUT_FILE"]):
+    output_file = build_output_filename(CONFIG["APP_ID"])
+    if save_reviews(df_low, output_file):
         log.info("✓ Process completed successfully")
         return 0
     else:
